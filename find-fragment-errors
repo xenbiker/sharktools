@@ -64,6 +64,7 @@ foreach $arg(@ARGV)
 
 	print "Analyzing: $pcap\n==================================\n";
 	open TS, "-|", "tshark -r $pcap $dashY 'icmp && icmp.type == 11' -T fields -E separator=, -e frame.number  -e frame.time_relative -e ip.src -e ip.dst -e frame.protocols -e _ws.col.Protocol -e _ws.col.Info -e ip.src -e ip.id -te" || die "Unable to run tshark";
+	delete @h{keys %h} if scalar(keys(%h));
         print "\nPass 1 started: Locating ICMP type=11 packets";
 	while (<TS>) 
 	{
@@ -78,13 +79,10 @@ foreach $arg(@ARGV)
 	}
 	close TS;
 	print "\nPass 1 complete: Found " . scalar(keys(%h)) . ".\n";
-	
 	next if !scalar(keys(%h));
-
 	open TS, "-|", "tshark -r $pcap $dashY ip -T fields -E separator=, -e frame.number  -e frame.time_relative -e ip.src -e ip.dst -e frame.protocols -e _ws.col.Protocol -e _ws.col.Info -e ip.id -e ip.src -e ip.id -te" || die "Unable to run tshark";
-	
+        $ifrag = 0;
 	print "Pass 2 started: Locating TTL exceeded fragments\n:";
-	
 	while (<TS>) 
 	{
 		chomp;
