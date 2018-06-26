@@ -43,7 +43,7 @@ $FINDFRAGERRVER="1.0-2018-06-26";
 $|++;
 if ($#ARGV < 0) 
 {
-	print "Usage: fragerrors [pcap-file] ...\n";
+	print "Usage: find-fragment-errors [pcap-file] ...\n";
 	exit 1;
 }
 
