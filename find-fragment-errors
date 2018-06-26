@@ -51,7 +51,7 @@ $ipid=0;
 $ipid="";
 $dashY="";
 
-open TS, "-|", "tshark --help" || die "wireshark rpm required.";
+open TS, "-|", "tshark -help" || die "wireshark rpm required.";
 while (<TS>) 
 {
 	$dashY = "-Y" if /-Y <display filter>/;	
