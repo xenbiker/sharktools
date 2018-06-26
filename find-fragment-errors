@@ -1,0 +1,112 @@
+#!/usr/bin/perl
+# Find icmp's due to fragment errors (timeout ) using ~only~ 2 
+# passes on .pcap file
+#
+# The is a tshark post processor. The first tshark pass finds icmp 
+# timeout packets, records the original ip.src and ip.id in a hash
+# with the ICMP packet.  In the second pass, the first packet from the 
+# same ip.src with a matching ip.id is printed, followed by the icmp
+# packet and then any subsequent fragments for that same ip.src/ip.id.
+#
+# Results:
+# - When every other packet in the output is an ICMP, examine the original
+#   packets for More Fragments flags and Fragment offsets=0.  When both
+#   are true, the remaining fragments never arrived and the timeout is the
+#   result of not receiving all the fragments.
+# - When ICMP packets are less frequent than every other output line, then
+#   examine the first and following packets for the MF flag and the
+#   Fragment offset value.  When all fragments were received long before 
+#   the timeout (i.e. One packet had MF=1 and offset=0 and all intermediate 
+#   fragments have MF=1 with offset!=0, plus the final packet had MF=0 
+#   and offset!=0 has arrived) then fragment processing took too long. 
+#
+#
+# Copyright (C) 2018 Curtis Taylor
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, version 3, https://www.gnu.org/licenses/gpl-3.0.html
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+
+use strict;
+use warnings;
+
+my ($arg, $pcap, @pkt, $ipid, $ipsrc, %h, $k, $src, $id, $ifrag, $dashY, $FINDFRAGERRVER);
+
+$FINDFRAGERRVER="1.0-2018-06-26";
+
+$|++;
+if ($#ARGV < 0) 
+{
+	print "Usage: fragerrors [pcap-file] ...\n";
+	exit 1;
+}
+
+$ipid=0;
+$ipid="";
+$dashY="";
+
+open TS, "-|", "tshark --help" || die "wireshark rpm required.";
+while (<TS>) 
+{
+	$dashY = "-Y" if /-Y <display filter>/;	
+}
+close TS;
+
+foreach $arg(@ARGV)
+{
+	$pcap = pop @ARGV;
+
+	print "Analyzing: $pcap\n==================================\n";
+	open TS, "-|", "tshark -r $pcap $dashY 'icmp && icmp.type == 11' -T fields -E separator=, -e frame.number  -e frame.time_relative -e ip.src -e ip.dst -e frame.protocols -e _ws.col.Protocol -e _ws.col.Info -e ip.src -e ip.id -te" || die "Unable to run tshark";
+        print "\nPass 1 started: Locating ICMP type=11 packets";
+	while (<TS>) 
+	{
+		chomp;
+		@pkt = split /,/, $_;
+		$ipid = hex(pop @pkt);
+		pop @pkt; # gobble the ip.id of the icmp pkt
+		$ipsrc = pop @pkt;
+		pop @pkt; # gobble the ip.src of the icmp pkt
+		$h{"$ipsrc, $ipid"}="@pkt";
+		print ".";
+	}
+	close TS;
+	print "\nPass 1 complete: Found " . scalar(keys(%h)) . ".\n";
+	
+	next if !scalar(keys(%h));
+
+	open TS, "-|", "tshark -r $pcap $dashY ip -T fields -E separator=, -e frame.number  -e frame.time_relative -e ip.src -e ip.dst -e frame.protocols -e _ws.col.Protocol -e _ws.col.Info -e ip.id -e ip.src -e ip.id -te" || die "Unable to run tshark";
+	
+	print "Pass 2 started: Locating TTL exceeded fragments\n:";
+	
+	while (<TS>) 
+	{
+		chomp;
+		@pkt = split /,/, $_;
+		$ipid = hex(pop @pkt);
+		$ipsrc = pop @pkt;
+		foreach $k(keys %h)
+		{
+			($src, $id) = split /, /, $k;
+			if (($ipsrc =~ $src) && ($ipid == $id)) 
+			{
+				if (!($h{"$src, $id"} =~ /^1$/)) {
+					print "\n" . $h{"$src, $id"} . "\n";
+					$h{"$src, $id"}="1";
+				}
+				print "@pkt\n";
+				$ifrag++;
+				
+			}
+		}
+	}
+	close TS;
+	print "Pass 2 complete: $ifrag fragements found for " .  scalar(keys(%h)) . " ICMP TTL exceeded cases.\n";
+}
+exit 0;
